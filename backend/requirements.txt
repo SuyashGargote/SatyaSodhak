@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+httpx
+openai
+python-dotenv
+psycopg2-binary
+supabase
+sqlalchemy
+pydantic
+beautifulsoup4
+tqdm
+python-multipart
+pgvector

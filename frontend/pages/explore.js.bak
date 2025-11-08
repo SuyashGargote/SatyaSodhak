@@ -1,0 +1,371 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { Search, List, Grid, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import Navbar from '@/components/Navbar';
+import { useTheme } from 'next-themes';
+import Link from 'next/link';
+
+// Mock data for fallback
+const MOCK_CLAIMS = [
+  {
+    id: '550e8400-e29b-41d4-a716-446655440000',
+    title: 'Vaccines cause autism',
+    summary: 'Multiple studies have shown no link between vaccines and autism.',
+    verdict: 'false',
+    tags: ['health', 'vaccines', 'myth'],
+    created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: '550e8400-e29b-41d4-a716-446655440001',
+    title: 'Climate change is a hoax',
+    summary: 'Over 97% of climate scientists agree that climate change is real and caused by human activity.',
+    verdict: 'false',
+    tags: ['environment', 'science', 'politics'],
+    created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: '550e8400-e29b-41d4-a716-446655440002',
+    title: 'Drinking 8 glasses of water daily is necessary',
+    summary: 'Water needs vary by individual, and the 8-glass rule is not based on scientific evidence.',
+    verdict: 'misleading',
+    tags: ['health', 'nutrition', 'myth'],
+    created_at: new Date().toISOString(),
+  }
+];
+
+export default function ExplorePage() {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('grid');
+  const [claims, setClaims] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  // Get current theme
+  const { theme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  
+  // Ensure component is mounted to avoid hydration issues
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Fetch claims from API
+  const fetchClaims = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+      console.log('Fetching claims from:', `${backendUrl}/api/claims`);
+      
+      const response = await fetch(`${backendUrl}/api/claims`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('API Response:', data);
+      
+      if (Array.isArray(data)) {
+        // Process and validate each claim
+        const processedClaims = data.map(claim => ({
+          id: claim.id || `mock-${Math.random().toString(36).substr(2, 9)}`,
+          title: claim.title || 'Untitled Claim',
+          summary: claim.summary || 'No summary available',
+          verdict: ['true', 'false', 'misleading', 'pending'].includes(claim.verdict?.toLowerCase()) 
+            ? claim.verdict.toLowerCase() 
+            : 'pending',
+          tags: Array.isArray(claim.tags) ? claim.tags : [],
+          created_at: claim.created_at || new Date().toISOString(),
+          updated_at: claim.updated_at || new Date().toISOString(),
+        }));
+        
+        setClaims(processedClaims);
+        
+        if (processedClaims.length === 0) {
+          console.warn('No claims found in the database');
+          setError('No claims found. Using demo data.');
+          setClaims(MOCK_CLAIMS);
+        }
+      } else {
+        console.error('Invalid data format received, using mock data');
+        setError('Invalid data format received. Using demo data.');
+        setClaims(MOCK_CLAIMS);
+      }
+    } catch (err) {
+      console.error('Error fetching claims:', err);
+      setError(`Failed to load claims: ${err.message}. Using demo data.`);
+      setClaims(MOCK_CLAIMS);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchClaims();
+  }, []);
+
+  // Filter claims based on search and active filter
+  const filteredClaims = claims.filter(claim => {
+    if (!claim) return false;
+    
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery || 
+      (claim.title || '').toLowerCase().includes(searchLower) ||
+      (claim.summary || '').toLowerCase().includes(searchLower) ||
+      (claim.tags || []).some(tag => 
+        tag.toLowerCase().includes(searchLower)
+      );
+    
+    const matchesFilter = activeFilter === 'all' || 
+                         (claim.verdict || '').toLowerCase() === activeFilter.toLowerCase();
+    
+    return matchesSearch && matchesFilter;
+  });
+
+  // Handle claim click
+  const handleClaimClick = (claimId) => {
+    router.push(`/claims/${claimId}`);
+  };
+
+  // Get badge color based on verdict
+  const getVerdictBadge = (verdict) => {
+    const baseClasses = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium';
+    
+    switch ((verdict || '').toLowerCase()) {
+      case 'true':
+        return <span className={`${baseClasses} bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300`}>True</span>;
+      case 'false':
+        return <span className={`${baseClasses} bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300`}>False</span>;
+      case 'misleading':
+        return <span className={`${baseClasses} bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300`}>Misleading</span>;
+      default:
+        return <span className={`${baseClasses} bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300`}>Pending</span>;
+    }
+  };
+
+  // Format date
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  // Loading state
+  if (isLoading || !mounted) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <div className="pt-16 pb-8 px-4 sm:px-6 lg:px-8">
+        {/* Hero Section */}
+        <div className="text-center py-12">
+          <h1 className="text-4xl font-bold text-foreground sm:text-5xl sm:tracking-tight lg:text-6xl">
+            Explore Claims
+          </h1>
+          <p className="mt-3 max-w-md mx-auto text-base text-muted-foreground sm:text-lg md:mt-5 md:text-xl md:max-w-3xl">
+            Search through verified claims and fact-checks from around the web
+          </p>
+        </div>
+
+        {/* Search and Filter Bar */}
+        <div className="max-w-6xl mx-auto mb-8">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+            {/* Search Bar */}
+            <div className="relative w-full sm:max-w-md">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <input
+                type="text"
+                className="block w-full pl-10 pr-3 py-2 border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 sm:text-sm transition-colors"
+                placeholder="Search claims..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* View Toggle */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-md ${viewMode === 'grid' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}`}
+                aria-label="Grid view"
+              >
+                <Grid className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 rounded-md ${viewMode === 'list' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'}`}
+                aria-label="List view"
+              >
+                <List className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Chips */}
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            {['all', 'true', 'false', 'misleading', 'pending'].map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setActiveFilter(filter)}
+                className={`px-3 py-1 text-sm font-medium rounded-full capitalize transition-colors ${
+                  activeFilter === filter
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-accent text-accent-foreground hover:bg-accent/80 dark:bg-accent/30 dark:hover:bg-accent/50'
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        </div>
+                className={`p-2 rounded-lg ${viewMode === 'list' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                aria-label="List view"
+              >
+                <List className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Chips */}
+          <div className="flex flex-wrap justify-center gap-2">
+            {['all', 'true', 'false', 'misleading', 'pending'].map((filter) => {
+              const isActive = activeFilter === filter;
+              return (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  className={`px-4 py-2 text-sm font-medium rounded-full capitalize transition-colors ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-accent text-accent-foreground hover:bg-accent/80'
+                  }`}
+                >
+                  {filter}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="max-w-4xl mx-auto mb-8 bg-red-50 border-l-4 border-red-500 p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <AlertCircle className="h-5 w-5 text-red-500" />
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+              <div className="ml-auto pl-3">
+                <div className="-mx-1.5 -my-1.5">
+                  <button
+                    type="button"
+                    onClick={fetchClaims}
+                    className="inline-flex rounded-md bg-red-50 p-1.5 text-red-500 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-red-50"
+                  >
+                    <span className="sr-only">Retry</span>
+                    <RefreshCw className="h-5 w-5" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Claims Grid/List */}
+        {filteredClaims.length === 0 ? (
+          <div className="text-center py-12">
+            <Search className="mx-auto h-12 w-12 text-gray-400" />
+            <h3 className="mt-2 text-lg font-medium text-gray-900">No claims found</h3>
+            <p className="mt-1 text-gray-500">Try adjusting your search or filter to find what you're looking for.</p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setActiveFilter('all');
+              }}
+              className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : (
+          <div
+            className={
+              viewMode === 'grid'
+                ? 'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3'
+                : 'space-y-6'
+            }
+          >
+            {filteredClaims.map((claim) => (
+              <div
+                key={claim.id}
+                className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow duration-200 cursor-pointer"
+                onClick={() => handleClaimClick(claim.id)}
+              >
+                <div className="p-6">
+                  <div className="flex items-center justify-between">
+                    {getVerdictBadge(claim.verdict)}
+                    <span className="text-sm text-gray-500">
+                      {new Date(claim.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <h3 className="mt-2 text-lg font-medium text-gray-900 line-clamp-2">
+                    {claim.title}
+                  </h3>
+                  <p className="mt-1 text-gray-600 line-clamp-3">{claim.summary}</p>
+                  {claim.tags && claim.tags.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {claim.tags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {claim.tags.length > 3 && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-500">
+                          +{claim.tags.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
